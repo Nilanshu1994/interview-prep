@@ -1,93 +1,58 @@
-// GitHub Models — free inference endpoint
+// GitHub Models — free AI inference (no billing, just a GitHub account)
 // Docs: https://docs.github.com/en/github-models
-const GITHUB_MODELS_ENDPOINT = 'https://models.inference.ai.azure.com/chat/completions';
-const MODEL = 'gpt-4o-mini'; // free, fast, good quality
+const ENDPOINT = 'https://models.inference.ai.azure.com/chat/completions';
+const MODEL    = 'gpt-4o-mini';
 
-export async function generateQuestions(topic, difficulty, existingQuestions = []) {
-  const token = localStorage.getItem('gh_token');
-  if (!token) throw new Error('NO_TOKEN');
+// Token comes from .env — baked into the build at deploy time.
+// Users never see or enter it.
+const TOKEN = process.env.REACT_APP_GH_TOKEN || '';
 
-  const diffLabel = {
-    easy: 'basic/foundational',
-    medium: 'intermediate',
-    hard: 'advanced/expert-level',
-  }[difficulty];
-
-  const prompt = `You are a senior engineering interviewer. Generate exactly 10 ${diffLabel} interview questions on the topic "${topic}" for a software engineer with 8 years of experience.
-
-Return ONLY a raw JSON array. No markdown, no backticks, no explanation. Each item must have:
-- "q": the interview question
-- "a": a detailed, accurate answer written in plain paragraphs. For code, use triple-backtick blocks. Include ASCII diagrams for architecture/flow topics. Be thorough.
-
-Start directly with [ and end with ]`;
-
-  const res = await fetch(GITHUB_MODELS_ENDPOINT, {
+async function callModel(messages, max_tokens = 8000) {
+  if (!TOKEN) throw new Error('GH_TOKEN_MISSING');
+  const res = await fetch(ENDPOINT, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${TOKEN}`,
     },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.7,
-      max_tokens: 8000,
-    }),
+    body: JSON.stringify({ model: MODEL, messages, temperature: 0.7, max_tokens }),
   });
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    const msg = err.error?.message || `API error ${res.status}`;
-    if (res.status === 401) throw new Error('BAD_TOKEN');
-    throw new Error(msg);
+    throw new Error(err.error?.message || `API error ${res.status}`);
   }
-
   const data = await res.json();
-  let text = data.choices?.[0]?.message?.content || '';
-  text = text.replace(/```json|```/g, '').trim();
-  const si = text.indexOf('[');
-  const ei = text.lastIndexOf(']');
-  if (si < 0 || ei < 0) throw new Error('Response did not contain a JSON array. Try again.');
-  const questions = JSON.parse(text.slice(si, ei + 1));
-  return questions.map((q) => ({ q: q.q, a: q.a, reviewed: false, note: '' }));
+  return data.choices?.[0]?.message?.content || '';
+}
+
+export async function generateQuestions(topic, difficulty) {
+  const label = { easy: 'basic/foundational', medium: 'intermediate', hard: 'advanced/expert-level' }[difficulty];
+
+  const prompt = `You are a senior engineering interviewer. Generate exactly 10 ${label} interview questions on the topic "${topic}" for a software engineer with 8 years of experience.
+
+Return ONLY a raw JSON array. No markdown, no backticks, no explanation before or after.
+Each item: { "q": "question text", "a": "detailed answer — plain paragraphs, triple-backtick code blocks where needed, ASCII diagrams for architecture topics" }
+Start directly with [ and end with ]`;
+
+  const text = await callModel([{ role: 'user', content: prompt }], 8000);
+  const clean = text.replace(/```json|```/g, '').trim();
+  const si = clean.indexOf('['), ei = clean.lastIndexOf(']');
+  if (si < 0 || ei < 0) throw new Error('Model did not return a JSON array. Please retry.');
+  const qs = JSON.parse(clean.slice(si, ei + 1));
+  return qs.map(q => ({ q: q.q, a: q.a, reviewed: false, note: '' }));
 }
 
 export async function regenerateOne(topic, difficulty, existingQuestions) {
-  const token = localStorage.getItem('gh_token');
-  if (!token) throw new Error('NO_TOKEN');
+  const label = { easy: 'basic/foundational', medium: 'intermediate', hard: 'advanced/expert-level' }[difficulty];
+  const existing = existingQuestions.map(q => q.q).join('\n');
 
-  const diffLabel = {
-    easy: 'basic/foundational',
-    medium: 'intermediate',
-    hard: 'advanced/expert-level',
-  }[difficulty];
+  const prompt = `Generate 1 new ${label} interview question on "${topic}" for an 8-year experienced engineer.
+Must be different from:\n${existing}\n
+Return ONLY a JSON object, no markdown: {"q":"...","a":"..."}`;
 
-  const existing = existingQuestions.map((q) => q.q).join('\n');
-
-  const prompt = `You are a senior engineering interviewer. Generate 1 new ${diffLabel} interview question on "${topic}" for an 8-year experienced engineer.
-It must be completely different from:\n${existing}\n
-Return ONLY a raw JSON object with no markdown:\n{"q":"...","a":"..."}`;
-
-  const res = await fetch(GITHUB_MODELS_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.8,
-      max_tokens: 2000,
-    }),
-  });
-
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  const data = await res.json();
-  let text = data.choices?.[0]?.message?.content || '';
-  text = text.replace(/```json|```/g, '').trim();
-  const si = text.indexOf('{');
-  const ei = text.lastIndexOf('}');
-  const q = JSON.parse(text.slice(si, ei + 1));
+  const text = await callModel([{ role: 'user', content: prompt }], 2000);
+  const clean = text.replace(/```json|```/g, '').trim();
+  const si = clean.indexOf('{'), ei = clean.lastIndexOf('}');
+  const q = JSON.parse(clean.slice(si, ei + 1));
   return { q: q.q, a: q.a, reviewed: false, note: '' };
 }
