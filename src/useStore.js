@@ -3,13 +3,16 @@ import {
   loadAll,
   dbAddTopic, dbDeleteTopic,
   dbSaveQuestions, dbUpdateQuestion, dbReplaceQuestion,
+  loadComparisons, dbSaveComparison, dbDeleteComparison, compKey,
 } from './supabase';
+import { generateComparison } from './api';
 
 export function useStore() {
-  const [db, setDb]           = useState({});           // in-memory working copy
-  const [theme, setTheme]     = useState(() => localStorage.getItem('prep_theme') || 'light');
-  const [syncStatus, setSyncStatus] = useState('loading'); // loading | ready | saving | error
-  const [syncError, setSyncError]   = useState('');
+  const [db,           setDb]          = useState({});
+  const [comparisons,  setComparisons]  = useState({});   // { "A|||B": comparisonData }
+  const [theme,        setTheme]        = useState(() => localStorage.getItem('prep_theme') || 'light');
+  const [syncStatus,   setSyncStatus]   = useState('loading');
+  const [syncError,    setSyncError]    = useState('');
 
   // Apply theme
   useEffect(() => {
@@ -17,14 +20,21 @@ export function useStore() {
     localStorage.setItem('prep_theme', theme);
   }, [theme]);
 
-  // Boot: load everything from Supabase
+  // Boot: load topics + comparisons from Supabase in parallel
   useEffect(() => {
-    loadAll()
-      .then(data => { setDb(data); setSyncStatus('ready'); })
-      .catch(e  => { setSyncStatus('error'); setSyncError(e.message || 'Failed to connect to database'); });
+    Promise.all([loadAll(), loadComparisons()])
+      .then(([topics, comps]) => {
+        setDb(topics);
+        setComparisons(comps);
+        setSyncStatus('ready');
+      })
+      .catch(e => {
+        setSyncStatus('error');
+        setSyncError(e.message || 'Failed to connect to database');
+      });
   }, []);
 
-  // ── TOPICS ──────────────────────────────────────────────────────────────────
+  // ── TOPICS ───────────────────────────────────────────────────────────────────
 
   const addTopic = useCallback(async (name) => {
     setSyncStatus('saving');
@@ -62,21 +72,17 @@ export function useStore() {
     if (!topicId) return;
     setSyncStatus('saving');
     try {
-      const ids = await dbSaveQuestions(topicId, diff, questions);
+      const ids     = await dbSaveQuestions(topicId, diff, questions);
       const withIds = questions.map((q, i) => ({ ...q, _id: ids[i] }));
       setDb(prev => ({
         ...prev,
-        [topicName]: {
-          ...prev[topicName],
-          [diff]: { questions: withIds, idx: 0 },
-        },
+        [topicName]: { ...prev[topicName], [diff]: { questions: withIds, idx: 0 } },
       }));
       setSyncStatus('ready');
     } catch(e) { setSyncStatus('error'); setSyncError(e.message); throw e; }
   }, [db]);
 
   const setIdx = useCallback((topicName, diff, idx) => {
-    // idx is local-only (no need to persist to DB)
     setDb(prev => ({
       ...prev,
       [topicName]: {
@@ -90,7 +96,6 @@ export function useStore() {
     const q = db[topicName]?.[diff]?.questions?.[idx];
     if (!q) return;
     const newVal = !q.reviewed;
-    // Optimistic update
     setDb(prev => {
       const qs = [...prev[topicName][diff].questions];
       qs[idx] = { ...qs[idx], reviewed: newVal };
@@ -102,7 +107,6 @@ export function useStore() {
   const saveNote = useCallback(async (topicName, diff, idx, note) => {
     const q = db[topicName]?.[diff]?.questions?.[idx];
     if (!q) return;
-    // Optimistic update
     setDb(prev => {
       const qs = [...prev[topicName][diff].questions];
       qs[idx] = { ...qs[idx], note };
@@ -122,6 +126,26 @@ export function useStore() {
     if (q._id) await dbReplaceQuestion(q._id, newQ.q, newQ.a).catch(() => {});
   }, [db]);
 
+  // ── COMPARISONS ──────────────────────────────────────────────────────────────
+
+  const runComparison = useCallback(async (topicA, topicB) => {
+    const key  = compKey(topicA, topicB);
+    const data = await generateComparison(topicA, topicB);
+    setComparisons(prev => ({ ...prev, [key]: data }));
+    await dbSaveComparison(topicA, topicB, data).catch(() => {});
+    return data;
+  }, []);
+
+  const deleteComparison = useCallback(async (topicA, topicB) => {
+    const key = compKey(topicA, topicB);
+    setComparisons(prev => { const n = {...prev}; delete n[key]; return n; });
+    await dbDeleteComparison(topicA, topicB).catch(() => {});
+  }, []);
+
+  const getComparison = useCallback((topicA, topicB) => {
+    return comparisons[compKey(topicA, topicB)] || null;
+  }, [comparisons]);
+
   // ── STATS ────────────────────────────────────────────────────────────────────
 
   const getTopicStats = useCallback((topicName) => {
@@ -140,5 +164,8 @@ export function useStore() {
     setQuestions, setIdx,
     toggleReviewed, saveNote, replaceQuestion,
     getTopicStats,
+    // comparisons
+    comparisons,
+    runComparison, deleteComparison, getComparison,
   };
 }

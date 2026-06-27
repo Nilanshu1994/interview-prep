@@ -126,3 +126,45 @@ export async function dbReplaceQuestion(questionId, q, a) {
     .eq('id', questionId);
   if (error) throw error;
 }
+
+// ── COMPARISONS ──────────────────────────────────────────────────────────────
+// Table: comparisons (id, topic_a, topic_b, data jsonb, created_at)
+// Unique constraint on (topic_a, topic_b) — one comparison per pair
+
+export async function loadComparisons() {
+  const { data, error } = await supabase
+    .from('comparisons')
+    .select('topic_a, topic_b, data')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  // Return as map keyed by "topicA|||topicB"
+  const map = {};
+  for (const row of (data || [])) {
+    map[compKey(row.topic_a, row.topic_b)] = row.data;
+  }
+  return map;
+}
+
+export async function dbSaveComparison(topicA, topicB, data) {
+  const { error } = await supabase
+    .from('comparisons')
+    .upsert(
+      { topic_a: topicA, topic_b: topicB, data },
+      { onConflict: 'topic_a,topic_b' }
+    );
+  if (error) throw error;
+}
+
+export async function dbDeleteComparison(topicA, topicB) {
+  const { error } = await supabase
+    .from('comparisons')
+    .delete()
+    .eq('topic_a', topicA)
+    .eq('topic_b', topicB);
+  if (error) throw error;
+}
+
+export function compKey(a, b) {
+  // Always store alphabetically so "A vs B" and "B vs A" are the same entry
+  return [a, b].sort().join('|||');
+}
