@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/interview-prep/static/css/main.dfe3fe97.css",
+    "main.js": "/interview-prep/static/js/main.b4d732de.js",
+    "index.html": "/interview-prep/index.html",
+    "main.dfe3fe97.css.map": "/interview-prep/static/css/main.dfe3fe97.css.map",
+    "main.b4d732de.js.map": "/interview-prep/static/js/main.b4d732de.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.dfe3fe97.css",
+    "static/js/main.b4d732de.js"
+  ]
+}
