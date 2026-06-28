@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   loadAll, dbAddTopic, dbDeleteTopic,
-  dbSaveQuestions, dbUpdateQuestion, dbReplaceQuestion,
+  dbSetQuestions, dbAppendQuestions, dbUpdateQuestion, dbReplaceQuestion,
   loadComparisons, dbSaveComparison, dbDeleteComparison, compKey,
   loadJDSessions, dbSaveJDSession, dbUpdateJDSession, dbDeleteJDSession,
 } from './supabase';
@@ -34,11 +34,9 @@ export function useStore() {
     setSyncStatus('saving');
     try {
       const id = await dbAddTopic(name);
-      setDb(prev => ({
-        ...prev,
-        [name]: { _id:id, easy:{questions:[],idx:0}, medium:{questions:[],idx:0}, hard:{questions:[],idx:0} },
-      }));
-      setSyncStatus('ready'); return id;
+      setDb(prev => ({ ...prev, [name]: { _id: id, questions: [], idx: 0 } }));
+      setSyncStatus('ready');
+      return id;
     } catch(e) { setSyncStatus('error'); setSyncError(e.message); throw e; }
   }, []);
 
@@ -47,66 +45,79 @@ export function useStore() {
     setSyncStatus('saving');
     try {
       await dbDeleteTopic(id);
-      setDb(prev => { const n={...prev}; delete n[name]; return n; });
+      setDb(prev => { const n = {...prev}; delete n[name]; return n; });
       setSyncStatus('ready');
     } catch(e) { setSyncStatus('error'); setSyncError(e.message); throw e; }
   }, [db]);
 
-  // ── Questions ─────────────────────────────────────────────────────────────────
-  const setQuestions = useCallback(async (topicName, diff, questions) => {
+  // ── Questions — flat, no difficulty ──────────────────────────────────────────
+
+  // Initial set (first batch or full reset)
+  const setQuestions = useCallback(async (topicName, questions) => {
     const id = db[topicName]?._id; if (!id) return;
     setSyncStatus('saving');
     try {
-      const ids     = await dbSaveQuestions(id, diff, questions);
+      const ids     = await dbSetQuestions(id, questions);
       const withIds = questions.map((q, i) => ({ ...q, _id: ids[i] }));
-      setDb(prev => ({ ...prev, [topicName]: { ...prev[topicName], [diff]: { questions: withIds, idx: 0 } } }));
+      setDb(prev => ({ ...prev, [topicName]: { ...prev[topicName], questions: withIds, idx: 0 } }));
       setSyncStatus('ready');
     } catch(e) { setSyncStatus('error'); setSyncError(e.message); throw e; }
   }, [db]);
 
-  const setIdx = useCallback((topicName, diff, idx) => {
-    setDb(prev => ({ ...prev, [topicName]: { ...prev[topicName], [diff]: { ...prev[topicName]?.[diff], idx } } }));
+  // Append new batch without touching existing questions
+  const appendQuestions = useCallback(async (topicName, newQuestions) => {
+    const id       = db[topicName]?._id; if (!id) return;
+    const existing = db[topicName]?.questions || [];
+    setSyncStatus('saving');
+    try {
+      const ids     = await dbAppendQuestions(id, newQuestions, existing.length);
+      const withIds = newQuestions.map((q, i) => ({ ...q, _id: ids[i] }));
+      setDb(prev => ({
+        ...prev,
+        [topicName]: { ...prev[topicName], questions: [...existing, ...withIds] },
+      }));
+      setSyncStatus('ready');
+    } catch(e) { setSyncStatus('error'); setSyncError(e.message); throw e; }
+  }, [db]);
+
+  const setIdx = useCallback((topicName, idx) => {
+    setDb(prev => ({ ...prev, [topicName]: { ...prev[topicName], idx } }));
   }, []);
 
-  const toggleReviewed = useCallback(async (topicName, diff, idx) => {
-    const q = db[topicName]?.[diff]?.questions?.[idx]; if (!q) return;
+  const toggleReviewed = useCallback(async (topicName, idx) => {
+    const q = db[topicName]?.questions?.[idx]; if (!q) return;
     const val = !q.reviewed;
     setDb(prev => {
-      const qs = [...prev[topicName][diff].questions];
+      const qs = [...prev[topicName].questions];
       qs[idx] = { ...qs[idx], reviewed: val };
-      return { ...prev, [topicName]: { ...prev[topicName], [diff]: { ...prev[topicName][diff], questions: qs } } };
+      return { ...prev, [topicName]: { ...prev[topicName], questions: qs } };
     });
     if (q._id) dbUpdateQuestion(q._id, { reviewed: val }).catch(() => {});
   }, [db]);
 
-  const saveNote = useCallback(async (topicName, diff, idx, note) => {
-    const q = db[topicName]?.[diff]?.questions?.[idx]; if (!q) return;
+  const saveNote = useCallback(async (topicName, idx, note) => {
+    const q = db[topicName]?.questions?.[idx]; if (!q) return;
     setDb(prev => {
-      const qs = [...prev[topicName][diff].questions];
+      const qs = [...prev[topicName].questions];
       qs[idx] = { ...qs[idx], note };
-      return { ...prev, [topicName]: { ...prev[topicName], [diff]: { ...prev[topicName][diff], questions: qs } } };
+      return { ...prev, [topicName]: { ...prev[topicName], questions: qs } };
     });
     if (q._id) dbUpdateQuestion(q._id, { note }).catch(() => {});
   }, [db]);
 
-  const replaceQuestion = useCallback(async (topicName, diff, idx, newQ) => {
-    const q = db[topicName]?.[diff]?.questions?.[idx]; if (!q) return;
+  const replaceQuestion = useCallback(async (topicName, idx, newQ) => {
+    const q = db[topicName]?.questions?.[idx]; if (!q) return;
     setDb(prev => {
-      const qs = [...prev[topicName][diff].questions];
+      const qs = [...prev[topicName].questions];
       qs[idx] = { ...qs[idx], ...newQ, _id: q._id };
-      return { ...prev, [topicName]: { ...prev[topicName], [diff]: { ...prev[topicName][diff], questions: qs } } };
+      return { ...prev, [topicName]: { ...prev[topicName], questions: qs } };
     });
     if (q._id) dbReplaceQuestion(q._id, newQ.q, newQ.a, newQ.tips).catch(() => {});
   }, [db]);
 
   const getTopicStats = useCallback((topicName) => {
-    const data = db[topicName] || {};
-    let total=0, reviewed=0;
-    ['easy','medium','hard'].forEach(d => {
-      total    += data[d]?.questions?.length || 0;
-      reviewed += data[d]?.questions?.filter(q=>q.reviewed).length || 0;
-    });
-    return { total, reviewed };
+    const qs = db[topicName]?.questions || [];
+    return { total: qs.length, reviewed: qs.filter(q => q.reviewed).length };
   }, [db]);
 
   // ── Comparisons ───────────────────────────────────────────────────────────────
@@ -120,7 +131,7 @@ export function useStore() {
 
   const deleteComparison = useCallback(async (topicA, topicB) => {
     const key = compKey(topicA, topicB);
-    setComparisons(prev => { const n={...prev}; delete n[key]; return n; });
+    setComparisons(prev => { const n = {...prev}; delete n[key]; return n; });
     dbDeleteComparison(topicA, topicB).catch(() => {});
   }, []);
 
@@ -162,7 +173,8 @@ export function useStore() {
   return {
     db, theme, setTheme, syncStatus, syncError,
     addTopic, deleteTopic,
-    setQuestions, setIdx, toggleReviewed, saveNote, replaceQuestion, getTopicStats,
+    setQuestions, appendQuestions, setIdx,
+    toggleReviewed, saveNote, replaceQuestion, getTopicStats,
     comparisons, runComparison, deleteComparison, getComparison,
     jdSessions, createJDSession, deleteJDSession, updateJDQuestion,
   };

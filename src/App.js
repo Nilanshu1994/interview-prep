@@ -13,7 +13,6 @@ const SYNC_UI = {
   ready:   { color:'var(--green)',      bg:'transparent',     label:'✓ Synced'         },
 };
 
-// ── Responsive hook ───────────────────────────────────────────────────────────
 function useIsMobile() {
   const [mobile, setMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => {
@@ -24,41 +23,30 @@ function useIsMobile() {
   return mobile;
 }
 
-// ── Bottom nav button ─────────────────────────────────────────────────────────
 function NavBtn({ icon, label, active, onClick }) {
   return (
-    <button className={`bottom-nav-btn${active?' active':''}`} onClick={onClick}>
+    <button className={`bottom-nav-btn${active ? ' active' : ''}`} onClick={onClick}>
       <span className="nav-icon">{icon}</span>
       {label}
     </button>
   );
 }
 
-// ── Empty study state ─────────────────────────────────────────────────────────
 function EmptyStudy({ isMobile, onOpenTopics }) {
   return (
-    <div style={{
-      height:'100%', display:'flex', flexDirection:'column',
-      alignItems:'center', justifyContent:'center',
-      gap:14, textAlign:'center', padding:32,
-    }}>
-      <div style={{ fontSize:60, opacity:0.15 }}>📖</div>
-      <h2 style={{ fontSize:20, fontWeight:700, color:'var(--text)' }}>Pick a topic to study</h2>
-      <p style={{ fontSize:14, maxWidth:300, lineHeight:1.7, color:'var(--text-3)' }}>
-        {isMobile
-          ? 'Tap Topics below to browse or add a topic.'
-          : 'Select a topic from the sidebar or add a new one. Switch to Compare or JD Prep using the tabs above.'}
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:14, textAlign:'center', padding:32 }}>
+      <div style={{ fontSize:56, opacity:0.12 }}>📖</div>
+      <h2 style={{ fontSize:20, fontWeight:700, color:'var(--text)' }}>Pick a topic</h2>
+      <p style={{ fontSize:14, maxWidth:280, lineHeight:1.7, color:'var(--text-3)' }}>
+        {isMobile ? 'Tap Topics below to get started.' : 'Select a topic from the sidebar or add a new one.'}
       </p>
       {isMobile && (
-        <button className="btn btn-primary" style={{ marginTop:8 }} onClick={onOpenTopics}>
-          Browse Topics →
-        </button>
+        <button className="btn btn-primary" style={{ marginTop:4 }} onClick={onOpenTopics}>Browse Topics →</button>
       )}
     </div>
   );
 }
 
-// ── Spinner screen ────────────────────────────────────────────────────────────
 function LoadingScreen() {
   return (
     <div style={{ height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:14, color:'var(--text-3)' }}>
@@ -72,42 +60,33 @@ export default function App() {
   const {
     db, theme, setTheme, syncStatus, syncError,
     addTopic, deleteTopic,
-    setQuestions, setIdx, toggleReviewed, saveNote, replaceQuestion, getTopicStats,
+    setQuestions, appendQuestions, setIdx,
+    toggleReviewed, saveNote, replaceQuestion, getTopicStats,
     runComparison, deleteComparison, getComparison,
     jdSessions, createJDSession, deleteJDSession, updateJDQuestion,
   } = useStore();
 
   const isMobile      = useIsMobile();
-  const [tab, setTab] = useState('study');          // 'study' | 'compare' | 'jd'
-  const [activeTopic, setActiveTopic] = useState(null);
-  const [drawerOpen,  setDrawerOpen]  = useState(false);
-
+  const [tab,         setTab]        = useState('study');
+  const [activeTopic, setActiveTopic]= useState(null);
+  const [drawerOpen,  setDrawerOpen] = useState(false);
   const sync = SYNC_UI[syncStatus] || SYNC_UI.ready;
   const showBanner = syncStatus === 'loading' || syncStatus === 'error';
 
-  // Close drawer on resize to desktop
   useEffect(() => { if (!isMobile) setDrawerOpen(false); }, [isMobile]);
 
-  function handleSelectTopic(name) {
-    setActiveTopic(name);
-    setTab('study');
-    setDrawerOpen(false);
-  }
+  function handleSelectTopic(name) { setActiveTopic(name); setTab('study'); setDrawerOpen(false); }
 
   async function handleAddTopic(name) {
-    await addTopic(name);
-    setActiveTopic(name);
-    setTab('study');
-    setDrawerOpen(false);
+    await addTopic(name); setActiveTopic(name); setTab('study'); setDrawerOpen(false);
   }
 
   async function handleDeleteTopic(name) {
-    if (!window.confirm(`Delete "${name}"? This permanently removes all its Q&As and notes.`)) return;
+    if (!window.confirm(`Delete "${name}"? All Q&As and notes will be permanently removed.`)) return;
     await deleteTopic(name);
     if (activeTopic === name) setActiveTopic(null);
   }
 
-  // ── Tab buttons (desktop top bar) ─────────────────────────────────────────
   const TABS = [
     { id:'study',   icon:'📖', label:'Study'   },
     { id:'compare', icon:'⚖',  label:'Compare' },
@@ -117,30 +96,23 @@ export default function App() {
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100dvh', overflow:'hidden' }}>
 
-      {/* Sync banner */}
       {showBanner && (
-        <div style={{
-          padding:'7px 16px', fontSize:12, textAlign:'center', flexShrink:0,
-          background: sync.bg, color: sync.color, borderBottom:'1px solid var(--border)',
-        }}>
-          {sync.label}{syncStatus==='error' && syncError ? ` — ${syncError}` : ''}
+        <div style={{ padding:'6px 16px', fontSize:12, textAlign:'center', flexShrink:0, background:sync.bg, color:sync.color, borderBottom:'1px solid var(--border)' }}>
+          {sync.label}{syncStatus === 'error' && syncError ? ` — ${syncError}` : ''}
         </div>
       )}
 
       <div className="app-shell">
+        <div className={`drawer-overlay${drawerOpen ? ' open' : ''}`} onClick={() => setDrawerOpen(false)} />
 
-        {/* Drawer overlay (mobile) */}
-        <div className={`drawer-overlay${drawerOpen?' open':''}`} onClick={() => setDrawerOpen(false)} />
-
-        {/* Sidebar */}
         <Sidebar
           db={db}
-          activeTopic={tab==='study' ? activeTopic : null}
+          activeTopic={tab === 'study' ? activeTopic : null}
           onSelect={handleSelectTopic}
           onAdd={handleAddTopic}
           onDelete={handleDeleteTopic}
           theme={theme}
-          onToggleTheme={() => setTheme(theme==='dark'?'light':'dark')}
+          onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           getTopicStats={getTopicStats}
           syncStatus={syncStatus}
           syncLabel={sync.label}
@@ -149,51 +121,39 @@ export default function App() {
           onClose={() => setDrawerOpen(false)}
         />
 
-        {/* Main area */}
         <div className="main-area">
 
           {/* Desktop tab bar */}
           {!isMobile && (
-            <div style={{
-              display:'flex', alignItems:'center', gap:4, padding:'8px 12px',
-              background:'var(--surface)', borderBottom:'1px solid var(--border)',
-              flexShrink:0,
-            }}>
+            <div style={{ display:'flex', alignItems:'center', gap:4, padding:'7px 12px', background:'var(--surface)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
               {TABS.map(t => (
                 <button key={t.id} onClick={() => setTab(t.id)} style={{
-                  padding:'7px 16px', borderRadius:8, fontSize:13, fontWeight:600,
-                  border:`1px solid ${tab===t.id?'var(--accent-3)':'var(--border)'}`,
-                  background: tab===t.id?'var(--accent-2)':'none',
-                  color: tab===t.id?'var(--accent-txt)':'var(--text-3)',
-                  cursor:'pointer', display:'flex', alignItems:'center', gap:6, transition:'all 0.12s',
+                  padding:'6px 14px', borderRadius:7, fontSize:12, fontWeight:600,
+                  border:`1px solid ${tab === t.id ? 'var(--accent-3)' : 'var(--border)'}`,
+                  background: tab === t.id ? 'var(--accent-2)' : 'none',
+                  color: tab === t.id ? 'var(--accent-txt)' : 'var(--text-3)',
+                  cursor:'pointer', display:'flex', alignItems:'center', gap:5, transition:'all 0.12s',
                 }}>
-                  <span>{t.icon}</span> {t.label}
+                  <span>{t.icon}</span>{t.label}
                 </button>
               ))}
             </div>
           )}
 
-          {/* Mobile header bar */}
+          {/* Mobile header */}
           {isMobile && (
-            <div style={{
-              display:'flex', alignItems:'center', gap:8, padding:'10px 14px',
-              background:'var(--surface)', borderBottom:'1px solid var(--border)',
-              flexShrink:0,
-            }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 14px', background:'var(--surface)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
               <button className="btn btn-icon btn-sm" onClick={() => setDrawerOpen(true)} style={{ fontSize:18 }}>☰</button>
               <div style={{ flex:1, fontSize:15, fontWeight:700, color:'var(--text)' }}>
-                {tab==='study' && (activeTopic || 'Interview Prep')}
-                {tab==='compare' && '⚖ Compare'}
-                {tab==='jd' && '📄 JD Prep'}
+                {tab === 'study' && (activeTopic || 'Interview Prep')}
+                {tab === 'compare' && '⚖ Compare'}
+                {tab === 'jd' && '📄 JD Prep'}
               </div>
-              <button className="btn btn-icon btn-sm" onClick={() => setTheme(theme==='dark'?'light':'dark')}>{theme==='dark'?'☀️':'🌙'}</button>
+              <button className="btn btn-icon btn-sm" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '☀️' : '🌙'}</button>
             </div>
           )}
 
-          {/* Content */}
           <div style={{ flex:1, overflow:'hidden' }}>
-
-            {/* STUDY */}
             {tab === 'study' && (
               syncStatus === 'loading' ? <LoadingScreen /> :
               activeTopic && db[activeTopic] ? (
@@ -201,6 +161,7 @@ export default function App() {
                   topicName={activeTopic}
                   topicData={db[activeTopic]}
                   setQuestions={setQuestions}
+                  appendQuestions={appendQuestions}
                   setIdx={setIdx}
                   toggleReviewed={toggleReviewed}
                   saveNote={saveNote}
@@ -211,40 +172,25 @@ export default function App() {
               )
             )}
 
-            {/* COMPARE */}
             {tab === 'compare' && (
-              <CompareView
-                topics={db}
-                getComparison={getComparison}
-                runComparison={runComparison}
-                deleteComparison={deleteComparison}
-              />
+              <CompareView topics={db} getComparison={getComparison} runComparison={runComparison} deleteComparison={deleteComparison} />
             )}
 
-            {/* JD PREP */}
             {tab === 'jd' && (
-              <JDView
-                jdSessions={jdSessions}
-                createJDSession={createJDSession}
-                deleteJDSession={deleteJDSession}
-                updateJDQuestion={updateJDQuestion}
-              />
+              <JDView jdSessions={jdSessions} createJDSession={createJDSession} deleteJDSession={deleteJDSession} updateJDQuestion={updateJDQuestion} />
             )}
-
           </div>
 
-          {/* Mobile bottom nav */}
           {isMobile && (
             <div className="bottom-nav">
               <div className="bottom-nav-inner">
-                <NavBtn icon="📚" label="Topics"  active={drawerOpen}       onClick={() => setDrawerOpen(o=>!o)} />
-                <NavBtn icon="📖" label="Study"   active={tab==='study'}    onClick={() => { setTab('study');   setDrawerOpen(false); }} />
-                <NavBtn icon="⚖"  label="Compare" active={tab==='compare'}  onClick={() => { setTab('compare'); setDrawerOpen(false); }} />
-                <NavBtn icon="📄" label="JD Prep" active={tab==='jd'}       onClick={() => { setTab('jd');      setDrawerOpen(false); }} />
+                <NavBtn icon="📚" label="Topics"  active={drawerOpen}       onClick={() => setDrawerOpen(o => !o)} />
+                <NavBtn icon="📖" label="Study"   active={tab === 'study'}  onClick={() => { setTab('study');   setDrawerOpen(false); }} />
+                <NavBtn icon="⚖"  label="Compare" active={tab === 'compare'}onClick={() => { setTab('compare'); setDrawerOpen(false); }} />
+                <NavBtn icon="📄" label="JD Prep" active={tab === 'jd'}     onClick={() => { setTab('jd');      setDrawerOpen(false); }} />
               </div>
             </div>
           )}
-
         </div>
       </div>
     </div>

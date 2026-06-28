@@ -4,7 +4,8 @@ const url = process.env.REACT_APP_SUPABASE_URL  || '';
 const key = process.env.REACT_APP_SUPABASE_ANON_KEY || '';
 export const supabase = createClient(url, key);
 
-// ── Topics + Questions ────────────────────────────────────────────────────────
+// ── Topics + Questions ─────────────────────────────────────────────────────────
+// All questions stored with difficulty='all' — single flat list per topic
 
 export async function loadAll() {
   const { data: topics, error: te } = await supabase
@@ -22,19 +23,15 @@ export async function loadAll() {
   for (const topic of topics) {
     db[topic.name] = {
       _id: topic.id,
-      easy:   { questions: [], idx: 0 },
-      medium: { questions: [], idx: 0 },
-      hard:   { questions: [], idx: 0 },
+      questions: [],
+      idx: 0,
     };
     for (const q of (questions || []).filter(q => q.topic_id === topic.id)) {
-      const diff = q.difficulty;
-      if (db[topic.name][diff]) {
-        db[topic.name][diff].questions.push({
-          _id: q.id, q: q.q, a: q.a,
-          tips: q.tips || [],
-          reviewed: q.reviewed, note: q.note || '',
-        });
-      }
+      db[topic.name].questions.push({
+        _id: q.id, q: q.q, a: q.a,
+        tips: q.tips || [],
+        reviewed: q.reviewed, note: q.note || '',
+      });
     }
   }
   return db;
@@ -52,12 +49,28 @@ export async function dbDeleteTopic(topicId) {
   if (error) throw error;
 }
 
-export async function dbSaveQuestions(topicId, difficulty, questions) {
-  await supabase.from('questions')
-    .delete().eq('topic_id', topicId).eq('difficulty', difficulty);
+// Appends new questions to existing ones (never replaces all)
+export async function dbAppendQuestions(topicId, questions, startPosition) {
   if (!questions.length) return [];
   const rows = questions.map((q, i) => ({
-    topic_id: topicId, difficulty,
+    topic_id: topicId,
+    difficulty: 'all',
+    q: q.q, a: q.a, tips: q.tips || [],
+    reviewed: q.reviewed || false, note: q.note || '',
+    position: startPosition + i,
+  }));
+  const { data, error } = await supabase.from('questions').insert(rows).select('id');
+  if (error) throw error;
+  return data.map(r => r.id);
+}
+
+// Replace a full batch (used only for initial load or full reset)
+export async function dbSetQuestions(topicId, questions) {
+  await supabase.from('questions').delete()
+    .eq('topic_id', topicId).eq('difficulty', 'all');
+  if (!questions.length) return [];
+  const rows = questions.map((q, i) => ({
+    topic_id: topicId, difficulty: 'all',
     q: q.q, a: q.a, tips: q.tips || [],
     reviewed: q.reviewed || false, note: q.note || '', position: i,
   }));
@@ -78,7 +91,6 @@ export async function dbReplaceQuestion(questionId, q, a, tips) {
 }
 
 // ── Comparisons ───────────────────────────────────────────────────────────────
-
 export async function loadComparisons() {
   const { data, error } = await supabase
     .from('comparisons').select('topic_a, topic_b, data').order('created_at', { ascending: true });
@@ -103,7 +115,6 @@ export async function dbDeleteComparison(topicA, topicB) {
 export function compKey(a, b) { return [a, b].sort().join('|||'); }
 
 // ── JD Sessions ───────────────────────────────────────────────────────────────
-
 export async function loadJDSessions() {
   const { data, error } = await supabase
     .from('jd_sessions').select('*').order('created_at', { ascending: false });
