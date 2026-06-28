@@ -1,134 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import PinModal from './PinModal';
 
-const s = {
-  sidebar: {
-    width:'272px', minWidth:'272px', background:'var(--surface)',
-    borderRight:'1px solid var(--border)', display:'flex',
-    flexDirection:'column', overflow:'hidden', height:'100%',
-  },
-  header: {
-    padding:'14px 16px', borderBottom:'1px solid var(--border)',
-    display:'flex', alignItems:'center', gap:'10px',
-  },
-  logo: {
-    width:'32px', height:'32px', background:'var(--accent)',
-    borderRadius:'8px', display:'flex', alignItems:'center',
-    justifyContent:'center', fontSize:'16px', flexShrink:0,
-  },
-  title:  { fontSize:'14px', fontWeight:600, color:'var(--text)' },
-  sub:    { fontSize:'11px', color:'var(--text-muted)', marginTop:'1px' },
-  iconBtn:{
-    background:'none', border:'1px solid var(--border)', borderRadius:'7px',
-    padding:'5px 7px', cursor:'pointer', fontSize:'14px',
-    color:'var(--text-secondary)', lineHeight:1, flexShrink:0,
-  },
-  searchWrap: { padding:'10px 12px', borderBottom:'1px solid var(--border)', position:'relative' },
-  searchIcon: {
-    position:'absolute', left:'22px', top:'50%', transform:'translateY(-50%)',
-    fontSize:'12px', color:'var(--text-muted)', pointerEvents:'none',
-  },
-  searchInput: {
-    width:'100%', padding:'7px 10px 7px 28px', border:'1px solid var(--border)',
-    borderRadius:'7px', background:'var(--bg)', color:'var(--text)',
-    fontSize:'13px', outline:'none',
-  },
-  list:  { flex:1, overflowY:'auto', padding:'8px' },
-  empty: { padding:'20px 12px', fontSize:'13px', color:'var(--text-muted)', textAlign:'center', lineHeight:'1.6' },
-  item:  {
-    display:'flex', alignItems:'center', gap:'8px',
-    padding:'8px 10px', borderRadius:'7px', cursor:'pointer',
-    transition:'background 0.1s', marginBottom:'2px',
-  },
-  itemName: {
-    flex:1, fontSize:'13px', fontWeight:500, overflow:'hidden',
-    textOverflow:'ellipsis', whiteSpace:'nowrap',
-  },
-  badge: {
-    fontSize:'10px', background:'var(--bg)', color:'var(--text-muted)',
-    border:'1px solid var(--border)', padding:'1px 6px',
-    borderRadius:'10px', flexShrink:0,
-  },
-  delBtn: {
-    background:'none', border:'1px solid transparent', borderRadius:'5px',
-    cursor:'pointer', fontSize:'12px', padding:'3px 6px',
-    color:'var(--danger)', flexShrink:0, lineHeight:1,
-    transition:'background 0.1s, border-color 0.1s',
-  },
-  addRow: {
-    padding:'10px 12px', borderTop:'1px solid var(--border)',
-    display:'flex', gap:'6px',
-  },
-  addInput: {
-    flex:1, padding:'8px 10px', border:'1px solid var(--border)',
-    borderRadius:'7px', background:'var(--bg)', color:'var(--text)',
-    fontSize:'13px', outline:'none',
-  },
-  addBtn: {
-    background:'var(--accent)', color:'#fff', border:'none',
-    borderRadius:'7px', padding:'8px 12px', fontSize:'13px',
-    fontWeight:500, cursor:'pointer', whiteSpace:'nowrap',
-  },
-  footer: {
-    padding:'8px 12px', borderTop:'1px solid var(--border)',
-    fontSize:'11px', color:'var(--text-muted)',
-  },
-};
-
 export default function Sidebar({
   db, activeTopic, onSelect, onAdd, onDelete,
   theme, onToggleTheme, getTopicStats,
   syncStatus, syncLabel, syncColor,
+  isOpen, onClose,
 }) {
-  const [filter,    setFilter]    = useState('');
-  const [newTopic,  setNewTopic]  = useState('');
-  const [adding,    setAdding]    = useState(false);
-  const [isAdmin,   setIsAdmin]   = useState(false);
-  const [showPin,   setShowPin]   = useState(false);
-  const [delConfirm, setDelConfirm] = useState(null); // topic name pending delete
+  const [filter,     setFilter]     = useState('');
+  const [newTopic,   setNewTopic]   = useState('');
+  const [adding,     setAdding]     = useState(false);
+  const [isAdmin,    setIsAdmin]    = useState(false);
+  const [showPin,    setShowPin]    = useState(false);
+  const [delConfirm, setDelConfirm] = useState(null);
 
-  // Restore admin state from sessionStorage on mount
   useEffect(() => {
     if (sessionStorage.getItem('admin_unlocked') === '1') setIsAdmin(true);
   }, []);
 
-  const topics = Object.keys(db).filter(t =>
-    t.toLowerCase().includes(filter.toLowerCase())
-  );
+  const topics = Object.keys(db).filter(t => t.toLowerCase().includes(filter.toLowerCase()));
 
   async function handleAdd() {
     const name = newTopic.trim();
     if (!name) return;
     if (db[name]) { alert('Topic already exists.'); return; }
     setAdding(true);
-    try { await onAdd(name); setNewTopic(''); }
+    try { await onAdd(name); setNewTopic(''); onClose(); }
     finally { setAdding(false); }
   }
 
   function handleLockToggle() {
-    if (isAdmin) {
-      // Lock immediately
-      sessionStorage.removeItem('admin_unlocked');
-      setIsAdmin(false);
-    } else {
-      setShowPin(true);
-    }
+    if (isAdmin) { sessionStorage.removeItem('admin_unlocked'); setIsAdmin(false); }
+    else setShowPin(true);
   }
 
-  function handleUnlocked() {
-    setIsAdmin(true);
-    setShowPin(false);
-  }
-
-  async function handleDelete(topicName) {
-    // First click sets pending; second click (confirm) executes
-    if (delConfirm === topicName) {
-      setDelConfirm(null);
-      await onDelete(topicName);
+  async function handleDelete(name) {
+    if (delConfirm === name) {
+      setDelConfirm(null); await onDelete(name);
     } else {
-      setDelConfirm(topicName);
-      // Auto-cancel after 3 seconds if user doesn't confirm
-      setTimeout(() => setDelConfirm(c => c === topicName ? null : c), 3000);
+      setDelConfirm(name);
+      setTimeout(() => setDelConfirm(c => c === name ? null : c), 3000);
     }
   }
 
@@ -136,167 +47,115 @@ export default function Sidebar({
 
   return (
     <>
-      {showPin && (
-        <PinModal
-          onSuccess={handleUnlocked}
-          onClose={() => setShowPin(false)}
-        />
-      )}
+      {showPin && <PinModal onSuccess={() => { setIsAdmin(true); setShowPin(false); }} onClose={() => setShowPin(false)} />}
 
-      <div style={s.sidebar}>
-
-        {/* ── Header ── */}
-        <div style={s.header}>
-          <div style={s.logo}>📚</div>
-          <div>
-            <div style={s.title}>Interview Prep</div>
-            <div style={s.sub}>{topicCount} topic{topicCount !== 1 ? 's' : ''}</div>
+      <aside className={`sidebar${isOpen ? ' open' : ''}`}>
+        {/* Header */}
+        <div style={{ padding:'14px 14px 12px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:'8px', flexShrink:0 }}>
+          <div style={{ width:32, height:32, background:'var(--accent)', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, flexShrink:0 }}>📚</div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:14, fontWeight:700, color:'var(--text)', lineHeight:1.2 }}>Interview Prep</div>
+            <div style={{ fontSize:11, color:'var(--text-3)', marginTop:2 }}>{topicCount} topic{topicCount!==1?'s':''}</div>
           </div>
-          {/* Lock/Unlock button */}
           <button
-            style={{
-              ...s.iconBtn,
-              borderColor: isAdmin ? 'var(--success-border)' : 'var(--border)',
-              color:        isAdmin ? 'var(--success)'        : 'var(--text-muted)',
-              background:   isAdmin ? 'var(--success-bg)'     : 'none',
-            }}
-            onClick={handleLockToggle}
-            title={isAdmin ? 'Click to lock admin mode' : 'Click to unlock admin mode'}
-          >
-            {isAdmin ? '🔓' : '🔒'}
-          </button>
-          {/* Theme toggle */}
-          <button style={s.iconBtn} onClick={onToggleTheme} title="Toggle theme">
-            {theme === 'dark' ? '☀️' : '🌙'}
-          </button>
+            className="btn btn-icon"
+            style={{ borderColor: isAdmin?'var(--green-3)':'var(--border)', color: isAdmin?'var(--green)':'var(--text-3)', background: isAdmin?'var(--green-2)':'none' }}
+            onClick={handleLockToggle} title={isAdmin?'Lock admin':'Unlock admin'}
+          >{isAdmin?'🔓':'🔒'}</button>
+          <button className="btn btn-icon" onClick={onToggleTheme} title="Toggle theme">{theme==='dark'?'☀️':'🌙'}</button>
         </div>
 
-        {/* ── Admin mode banner ── */}
+        {/* Admin banner */}
         {isAdmin && (
-          <div style={{
-            padding:'6px 12px', fontSize:'11px', fontWeight:500,
-            background:'var(--success-bg)', color:'var(--success)',
-            borderBottom:'1px solid var(--success-border)',
-            display:'flex', alignItems:'center', gap:'6px',
-          }}>
-            <span>🔓 Admin mode — you can add and delete topics</span>
+          <div style={{ padding:'6px 14px', fontSize:11, fontWeight:600, background:'var(--green-2)', color:'var(--green)', borderBottom:'1px solid var(--green-3)', flexShrink:0 }}>
+            🔓 Admin — add &amp; delete enabled
           </div>
         )}
 
-        {/* ── Search ── */}
-        <div style={s.searchWrap}>
-          <span style={s.searchIcon}>🔍</span>
+        {/* Search */}
+        <div style={{ padding:'10px 12px', borderBottom:'1px solid var(--border)', flexShrink:0, position:'relative' }}>
+          <span style={{ position:'absolute', left:22, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'var(--text-3)', pointerEvents:'none' }}>🔍</span>
           <input
-            style={s.searchInput}
+            className="input" style={{ paddingLeft:32, minHeight:38, fontSize:13 }}
             placeholder="Search topics…"
-            value={filter}
-            onChange={e => setFilter(e.target.value)}
+            value={filter} onChange={e => setFilter(e.target.value)}
           />
         </div>
 
-        {/* ── Topic list ── */}
-        <div style={s.list}>
+        {/* Topic list */}
+        <div style={{ flex:1, overflowY:'auto', padding:'8px' }}>
           {topics.length === 0 ? (
-            <div style={s.empty}>
-              {filter
-                ? 'No topics match your search.'
-                : isAdmin
-                  ? 'No topics yet — add one below.'
-                  : 'No topics yet.'}
+            <div style={{ padding:'20px 12px', fontSize:13, color:'var(--text-3)', textAlign:'center', lineHeight:1.6 }}>
+              {filter ? 'No topics match.' : isAdmin ? 'Add a topic below.' : 'No topics yet.'}
             </div>
           ) : topics.map(t => {
             const { total, reviewed } = getTopicStats(t);
             const isActive  = t === activeTopic;
             const isPending = delConfirm === t;
-
+            const pct       = total ? Math.round(reviewed/total*100) : 0;
             return (
               <div
                 key={t}
                 style={{
-                  ...s.item,
-                  background: isPending
-                    ? 'var(--danger-bg)'
-                    : isActive
-                      ? 'var(--accent-bg)'
-                      : 'transparent',
-                  border: isPending ? '1px solid var(--danger-border)' : '1px solid transparent',
+                  display:'flex', alignItems:'center', gap:8, padding:'10px 10px',
+                  borderRadius:8, cursor:'pointer', marginBottom:2,
+                  background: isPending ? 'var(--red-2)' : isActive ? 'var(--accent-2)' : 'transparent',
+                  border: isPending ? '1px solid var(--red-3)' : '1px solid transparent',
+                  transition:'background 0.12s',
                 }}
-                onClick={() => { setDelConfirm(null); onSelect(t); }}
+                onClick={() => { setDelConfirm(null); onSelect(t); onClose(); }}
               >
+                {/* Progress ring stub — just a colored dot */}
+                <div style={{
+                  width:8, height:8, borderRadius:'50%', flexShrink:0,
+                  background: pct===100 ? 'var(--green)' : pct>0 ? 'var(--accent)' : 'var(--border-strong)',
+                }} />
                 <span style={{
-                  ...s.itemName,
-                  color: isPending
-                    ? 'var(--danger)'
-                    : isActive ? 'var(--accent-text)' : 'var(--text)',
+                  flex:1, fontSize:13, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+                  color: isPending ? 'var(--red)' : isActive ? 'var(--accent-txt)' : 'var(--text)',
                 }} title={t}>{t}</span>
-
                 {total > 0 && !isPending && (
-                  <span style={{
-                    ...s.badge,
-                    background:  isActive ? 'var(--accent-bg)' : 'var(--bg)',
-                    color:       isActive ? 'var(--accent-text)' : 'var(--text-muted)',
-                    borderColor: isActive ? 'var(--accent)' : 'var(--border)',
-                  }}>{reviewed}/{total}</span>
+                  <span style={{ fontSize:10, color: isActive?'var(--accent-txt)':'var(--text-3)', flexShrink:0 }}>{reviewed}/{total}</span>
                 )}
-
                 {isPending && (
-                  <span style={{ fontSize:'11px', color:'var(--danger)', fontWeight:500, flexShrink:0 }}>
-                    Tap 🗑 again to confirm
-                  </span>
+                  <span style={{ fontSize:10, color:'var(--red)', fontWeight:600, flexShrink:0 }}>tap again</span>
                 )}
-
-                {/* Delete button — only visible in admin mode */}
                 {isAdmin && (
                   <button
-                    style={{
-                      ...s.delBtn,
-                      background:   isPending ? 'var(--danger-bg)'    : 'transparent',
-                      borderColor:  isPending ? 'var(--danger-border)' : 'transparent',
-                    }}
+                    className="btn btn-icon btn-sm"
+                    style={{ padding:'4px 6px', minHeight:28, minWidth:28, color: isPending?'var(--red)':'var(--text-3)', borderColor: isPending?'var(--red-3)':'transparent' }}
                     onClick={e => { e.stopPropagation(); handleDelete(t); }}
-                    title={isPending ? 'Confirm delete' : 'Delete topic'}
-                  >
-                    {isPending ? '✓ Delete' : '🗑'}
-                  </button>
+                    title={isPending?'Confirm delete':'Delete'}
+                  >{isPending ? '✓' : '🗑'}</button>
                 )}
               </div>
             );
           })}
         </div>
 
-        {/* ── Add topic — admin only ── */}
+        {/* Add topic — admin only */}
         {isAdmin && (
-          <div style={s.addRow}>
+          <div style={{ padding:'10px 12px', borderTop:'1px solid var(--border)', display:'flex', gap:6, flexShrink:0 }}>
             <input
-              style={s.addInput}
-              placeholder="e.g. Django ORM, Kubernetes…"
+              className="input" style={{ flex:1, fontSize:13 }}
+              placeholder="e.g. Django ORM…"
               value={newTopic}
               onChange={e => setNewTopic(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !adding && handleAdd()}
+              onKeyDown={e => e.key==='Enter' && !adding && handleAdd()}
               disabled={adding}
-              autoFocus
             />
-            <button
-              style={{ ...s.addBtn, opacity: adding ? 0.6 : 1 }}
-              onClick={handleAdd}
-              disabled={adding}
-            >
+            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={adding} style={{ flexShrink:0 }}>
               {adding ? '…' : '+ Add'}
             </button>
           </div>
         )}
 
-        {/* ── Footer: sync status ── */}
-        <div style={s.footer}>
-          <span style={{ color: syncColor || 'var(--text-muted)' }}>
-            {syncLabel || '✓ Synced'}
-          </span>
-          <div style={{ marginTop:'2px', color:'var(--text-muted)', fontSize:'10px' }}>
-            Stored in Supabase · available on all devices
-          </div>
+        {/* Footer */}
+        <div style={{ padding:'8px 14px', borderTop:'1px solid var(--border)', flexShrink:0 }}>
+          <div style={{ fontSize:11, color: syncColor||'var(--text-3)' }}>{syncLabel||'✓ Synced'}</div>
+          <div style={{ fontSize:10, color:'var(--text-3)', marginTop:2 }}>Supabase · all devices</div>
         </div>
-
-      </div>
+      </aside>
     </>
   );
 }

@@ -16,7 +16,7 @@ const GITHUB_MODELS_URL = 'https://models.inference.ai.azure.com/chat/completion
 // During local dev, also allow localhost.
 const ALLOWED_ORIGINS = [
   'http://localhost:3000',
-  'https://nilanshu1994.github.io',   // <-- uncomment and fill in before deploying
+  // 'https://YOUR_USERNAME.github.io',   <-- uncomment and fill in before deploying
 ];
 
 export default {
@@ -46,7 +46,7 @@ export default {
       const upstream = await fetch(GITHUB_MODELS_URL, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type':  'application/json',
           'Authorization': `Bearer ${env.GH_TOKEN}`,   // ← secret, never in frontend
         },
         body,
@@ -64,7 +64,7 @@ export default {
 // ── Helper: wrap any response with the right CORS headers ─────────────────────
 function corsResponse(body, status, origin, contentType = 'application/json') {
   const headers = {
-    'Access-Control-Allow-Origin': origin || '*',
+    'Access-Control-Allow-Origin':  origin || '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Content-Type': contentType,

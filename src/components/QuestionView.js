@@ -1,55 +1,200 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { generateQuestions, regenerateOne } from '../api';
 
-function formatAnswer(text) {
-  if (!text) return [];
-  return text.split(/(```[\s\S]*?```)/g).map((part, i) => {
-    if (part.startsWith('```')) {
-      const code = part.replace(/```\w*\n?/, '').replace(/```$/, '');
-      return (
-        <pre key={i} style={{
-          background:'var(--bg)', border:'1px solid var(--border)',
-          borderRadius:'8px', padding:'14px 16px', margin:'12px 0',
-          overflowX:'auto', fontFamily:"'SF Mono','Fira Code','Consolas',monospace",
-          fontSize:'12.5px', lineHeight:'1.65', whiteSpace:'pre', color:'var(--text)',
-        }}>{code}</pre>
-      );
-    }
-    return part.split(/\n\n+/).map((para, j) => (
-      <p key={`${i}-${j}`} style={{ marginBottom:'0.75em', lineHeight:'1.75', fontSize:'14px', color:'var(--text)' }}>
-        {para.split('\n').map((line, k, arr) => (
-          <React.Fragment key={k}>{line}{k < arr.length-1 && <br/>}</React.Fragment>
-        ))}
-      </p>
-    ));
-  });
+// ── Answer formatter ──────────────────────────────────────────────────────────
+function AnswerContent({ text }) {
+  if (!text) return null;
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith('```')) {
+          const lang = part.match(/```(\w+)/)?.[1] || '';
+          const code = part.replace(/```\w*\n?/, '').replace(/```$/, '');
+          return (
+            <div key={i}>
+              {lang && <div style={{ fontSize:10, fontWeight:600, color:'var(--text-3)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>{lang}</div>}
+              <pre className="code-block">{code}</pre>
+            </div>
+          );
+        }
+        return part.split(/\n\n+/).filter(Boolean).map((para, j) => (
+          <p key={`${i}-${j}`} style={{ marginBottom:'0.9em', lineHeight:1.8, fontSize:15, color:'var(--text-2)' }}>
+            {para.split('\n').map((line, k, arr) => (
+              <React.Fragment key={k}>{line}{k < arr.length-1 && <br/>}</React.Fragment>
+            ))}
+          </p>
+        ));
+      })}
+    </>
+  );
 }
 
 const DIFFS  = ['easy','medium','hard'];
-const LABELS = { easy:'Basic', medium:'Intermediate', hard:'Advanced' };
-const COLORS = {
-  easy:   { bg:'var(--success-bg)',  text:'var(--success)',  border:'var(--success-border)' },
-  medium: { bg:'var(--warning-bg)', text:'var(--warning)', border:'var(--warning-border)' },
-  hard:   { bg:'var(--danger-bg)',  text:'var(--danger)',  border:'var(--danger-border)' },
+const DLABEL = { easy:'Basic', medium:'Intermediate', hard:'Advanced' };
+const DCOLOR = {
+  easy:   'easy',
+  medium: 'medium',
+  hard:   'hard',
 };
 
+// ── Single question card ──────────────────────────────────────────────────────
+function QuestionCard({ q, idx, total, diff, topicName, onToggleReviewed, onSaveNote, onRegen, regenLoading }) {
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [showTips,   setShowTips]   = useState(false);
+  const [celebrated, setCelebrated] = useState(false);
+
+  // Reset reveal when question changes
+  useEffect(() => { setShowAnswer(false); setShowTips(false); }, [idx, topicName, diff]);
+
+  function handleReviewed() {
+    if (!q.reviewed) { setCelebrated(true); setTimeout(() => setCelebrated(false), 600); }
+    onToggleReviewed();
+  }
+
+  const hasTips = q.tips && q.tips.length > 0;
+
+  return (
+    <div className={`animate-fadein${celebrated ? ' animate-celebrate' : ''}`}
+      style={{ display:'flex', flexDirection:'column', gap:14 }}
+    >
+      {/* ── Question card ── */}
+      <div className="card" style={{
+        borderLeft: `4px solid var(--${DCOLOR[diff]==='easy'?'green':DCOLOR[diff]==='medium'?'amber':'red'})`,
+        position:'relative', overflow:'visible',
+      }}>
+        {/* Big question number watermark */}
+        <div style={{
+          position:'absolute', top:12, right:16,
+          fontSize:56, fontWeight:800, color:'var(--border)',
+          lineHeight:1, userSelect:'none', pointerEvents:'none',
+          fontVariantNumeric:'tabular-nums',
+        }}>
+          {String(idx+1).padStart(2,'0')}
+        </div>
+
+        <div style={{ padding:'20px 24px 16px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14, flexWrap:'wrap' }}>
+            <span className={`badge badge-${DCOLOR[diff]}`}>{DLABEL[diff]}</span>
+            <span style={{ fontSize:12, color:'var(--text-3)' }}>{idx+1} of {total}</span>
+            {q.reviewed && <span className="badge badge-accent" style={{ fontSize:10 }}>✓ Reviewed</span>}
+          </div>
+
+          <div style={{ fontSize:19, fontWeight:700, lineHeight:1.45, color:'var(--text)', marginRight:56, paddingBottom:4 }}>
+            {q.q}
+          </div>
+        </div>
+
+        {/* Show answer button */}
+        {!showAnswer && (
+          <div style={{ padding:'0 24px 20px' }}>
+            <button
+              className="btn btn-primary btn-lg btn-full"
+              style={{ borderRadius:10, fontSize:14, fontWeight:600, letterSpacing:'0.01em' }}
+              onClick={() => setShowAnswer(true)}
+            >
+              Show Answer →
+            </button>
+          </div>
+        )}
+
+        {/* Answer */}
+        {showAnswer && (
+          <div className="answer-body" style={{ borderTop:'1px solid var(--border)' }}>
+            <div style={{ padding:'18px 24px', background:'var(--surface2)' }}>
+              <div style={{ fontSize:10, fontWeight:700, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-3)', marginBottom:14 }}>
+                Answer
+              </div>
+              <AnswerContent text={q.a} />
+            </div>
+
+            {/* Tips section */}
+            {hasTips && (
+              <div style={{ borderTop:'1px solid var(--border)' }}>
+                <button
+                  onClick={() => setShowTips(s => !s)}
+                  style={{
+                    width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between',
+                    padding:'12px 24px', background:'none', border:'none', cursor:'pointer', color:'var(--amber)',
+                    fontSize:13, fontWeight:600,
+                  }}
+                >
+                  <span>💡 Interview Tips ({q.tips.length})</span>
+                  <span style={{ fontSize:12, transform: showTips?'rotate(180deg)':'none', transition:'transform 0.2s' }}>▾</span>
+                </button>
+                {showTips && (
+                  <div className="answer-body" style={{ padding:'0 24px 16px', display:'flex', flexDirection:'column', gap:8 }}>
+                    {q.tips.map((tip, i) => (
+                      <div key={i} className="tip-block">
+                        <div className="tip-label">Tip {i+1}</div>
+                        {tip}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Actions ── */}
+      <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+        <button
+          className={`btn btn-sm${q.reviewed ? '' : ''}`}
+          style={q.reviewed ? { borderColor:'var(--green-3)', background:'var(--green-2)', color:'var(--green)' } : {}}
+          onClick={handleReviewed}
+        >
+          {q.reviewed ? '✓ Reviewed' : '○ Mark reviewed'}
+        </button>
+        <button className="btn btn-sm" onClick={onRegen} disabled={regenLoading}>
+          {regenLoading ? <><span className="spinner" style={{width:12,height:12}} /> Generating…</> : '↻ New question'}
+        </button>
+      </div>
+
+      {/* ── Notes ── */}
+      <div className="card" style={{ padding:'14px 16px' }}>
+        <div style={{ fontSize:10, fontWeight:700, letterSpacing:'0.07em', textTransform:'uppercase', color:'var(--text-3)', marginBottom:8 }}>
+          📝 My Notes
+        </div>
+        <textarea
+          className="textarea"
+          style={{ minHeight:72, fontSize:14 }}
+          placeholder="Write your understanding, key points, or memory triggers…"
+          value={q.note || ''}
+          onChange={e => onSaveNote(e.target.value)}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Main QuestionView ─────────────────────────────────────────────────────────
 export default function QuestionView({ topicName, topicData, setQuestions, setIdx, toggleReviewed, saveNote, replaceQuestion }) {
-  const [diff, setDiff]         = useState('medium');
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState('');
-  const [regenLoading, setRegen]= useState(false);
+  const [diff,        setDiff]   = useState('medium');
+  const [loading,     setLoading]= useState(false);
+  const [error,       setError]  = useState('');
+  const [regenLoad,   setRegen]  = useState(false);
+  const [loadMore,    setLoadMore]= useState(false);
+  const bodyRef = useRef(null);
 
   const diffData  = topicData?.[diff] || { questions:[], idx:0 };
   const questions = diffData.questions || [];
-  const idx       = diffData.idx || 0;
+  const idx       = Math.max(0, Math.min(diffData.idx||0, questions.length-1));
   const current   = questions[idx];
   const total     = questions.length;
-  const col       = COLORS[diff];
+
+  const totalReviewed = ['easy','medium','hard'].reduce((a,d) => a+(topicData?.[d]?.questions?.filter(q=>q.reviewed).length||0), 0);
+  const totalAll      = ['easy','medium','hard'].reduce((a,d) => a+(topicData?.[d]?.questions?.length||0), 0);
+  const pct = totalAll ? Math.round(totalReviewed/totalAll*100) : 0;
 
   useEffect(() => {
     if (!loading && questions.length === 0) handleGenerate();
     // eslint-disable-next-line
   }, [diff, topicName]);
+
+  // Scroll to top when question changes
+  useEffect(() => { bodyRef.current?.scrollTo({ top:0, behavior:'smooth' }); }, [idx, diff]);
 
   async function handleGenerate() {
     setLoading(true); setError('');
@@ -57,10 +202,18 @@ export default function QuestionView({ topicName, topicData, setQuestions, setId
       const qs = await generateQuestions(topicName, diff);
       await setQuestions(topicName, diff, qs);
     } catch(e) {
-      setError(e.message === 'GH_TOKEN_MISSING'
-        ? 'GitHub token not configured. Add REACT_APP_GH_TOKEN to your .env file and redeploy.'
-        : e.message);
+      setError(e.message === 'PROXY_URL_MISSING' ? 'Proxy URL not configured. See setup guide.' : e.message);
     } finally { setLoading(false); }
+  }
+
+  async function handleLoadMore() {
+    setLoadMore(true);
+    try {
+      const newQs = await generateQuestions(topicName, diff);
+      const merged = [...questions, ...newQs];
+      await setQuestions(topicName, diff, merged);
+    } catch(e) { /* silent */ }
+    finally { setLoadMore(false); }
   }
 
   async function handleRegen() {
@@ -74,183 +227,133 @@ export default function QuestionView({ topicName, topicData, setQuestions, setId
 
   function handleExport() {
     const lines = [`# ${topicName} — Interview Q&A\n`];
-    DIFFS.forEach(d => {
+    ['easy','medium','hard'].forEach(d => {
       const qs = topicData?.[d]?.questions;
       if (!qs?.length) return;
-      lines.push(`\n## ${LABELS[d]}\n`);
+      lines.push(`\n## ${DLABEL[d]}\n`);
       qs.forEach((q, i) => {
         lines.push(`\n### Q${i+1}: ${q.q}\n\n${q.a}\n`);
+        if (q.tips?.length) { lines.push('\n**Interview Tips:**'); q.tips.forEach(t => lines.push(`- ${t}`)); lines.push(''); }
         if (q.note) lines.push(`\n> **My notes:** ${q.note}\n`);
         lines.push('\n---');
       });
     });
     navigator.clipboard.writeText(lines.join('\n'))
-      .then(()  => alert('Copied — paste into Notion, Obsidian, or any editor'))
-      .catch(()  => alert('Copy failed — try Ctrl+A and Ctrl+C'));
+      .then(() => alert('Copied to clipboard!'))
+      .catch(() => alert('Copy failed'));
   }
 
-  const totalReviewed = DIFFS.reduce((a,d) => a + (topicData?.[d]?.questions?.filter(q=>q.reviewed).length||0), 0);
-  const totalAll      = DIFFS.reduce((a,d) => a + (topicData?.[d]?.questions?.length||0), 0);
+  function goTo(i) { setIdx(topicName, diff, Math.max(0, Math.min(i, total-1))); }
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', overflow:'hidden' }}>
 
-      {/* Top bar */}
-      <div style={{
-        padding:'14px 20px', background:'var(--surface)', borderBottom:'1px solid var(--border)',
-        display:'flex', alignItems:'center', gap:'12px', flexWrap:'wrap', flexShrink:0,
-      }}>
-        <div>
-          <div style={{ fontSize:'15px', fontWeight:600, color:'var(--text)' }}>{topicName}</div>
-          <div style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'1px' }}>
-            {totalReviewed}/{totalAll} reviewed
+      {/* ── Top bar ── */}
+      <div style={{ padding:'12px 16px', background:'var(--surface)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+        {/* Topic title + progress */}
+        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:10 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:16, fontWeight:700, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{topicName}</div>
+            <div style={{ fontSize:11, color:'var(--text-3)', marginTop:1 }}>{totalReviewed}/{totalAll} reviewed · {pct}%</div>
           </div>
+          <button className="btn btn-sm btn-icon" onClick={handleExport} title="Export all Q&A">⬇</button>
         </div>
-        <div style={{ display:'flex', gap:'4px', marginLeft:'auto' }}>
+
+        {/* Progress bar */}
+        <div className="progress-bar-track" style={{ marginBottom:10 }}>
+          <div className="progress-bar-fill" style={{
+            width:`${pct}%`,
+            background: pct===100 ? 'var(--green)' : pct>50 ? 'var(--accent)' : 'var(--amber)',
+          }} />
+        </div>
+
+        {/* Difficulty tabs */}
+        <div style={{ display:'flex', gap:4 }}>
           {DIFFS.map(d => (
             <button key={d} onClick={() => setDiff(d)} style={{
-              padding:'5px 12px', borderRadius:'20px', fontSize:'12px', fontWeight:500,
-              border:`1px solid ${d===diff ? COLORS[d].border : 'var(--border)'}`,
-              background: d===diff ? COLORS[d].bg : 'none',
-              color: d===diff ? COLORS[d].text : 'var(--text-muted)',
+              flex:1, padding:'7px 4px', borderRadius:8, fontSize:12, fontWeight:600,
+              border:`1px solid ${d===diff ? `var(--${d==='easy'?'green':d==='medium'?'amber':'red'}-3)` : 'var(--border)'}`,
+              background: d===diff ? `var(--${d==='easy'?'green':d==='medium'?'amber':'red'}-2)` : 'none',
+              color: d===diff ? `var(--${d==='easy'?'green':d==='medium'?'amber':'red'})` : 'var(--text-3)',
               cursor:'pointer', transition:'all 0.12s',
-            }}>{LABELS[d]}</button>
+            }}>
+              {DLABEL[d]}
+              {topicData?.[d]?.questions?.length > 0 && (
+                <span style={{ fontSize:10, marginLeft:4, opacity:0.7 }}>
+                  {topicData[d].questions.filter(q=>q.reviewed).length}/{topicData[d].questions.length}
+                </span>
+              )}
+            </button>
           ))}
         </div>
-        <button onClick={handleExport} style={{
-          padding:'5px 11px', borderRadius:'7px', fontSize:'12px',
-          border:'1px solid var(--border)', background:'none',
-          color:'var(--text-secondary)', cursor:'pointer',
-        }}>⬇ Export</button>
       </div>
 
-      {/* Scrollable body */}
-      <div style={{ flex:1, overflowY:'auto', padding:'20px', display:'flex', flexDirection:'column', gap:'14px' }}>
+      {/* ── Body ── */}
+      <div ref={bodyRef} style={{ flex:1, overflowY:'auto', padding:'16px', display:'flex', flexDirection:'column', gap:14 }}>
 
+        {/* Loading */}
         {loading && (
-          <div style={{
-            display:'flex', alignItems:'center', gap:'12px', padding:'20px',
-            background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'10px',
-            fontSize:'14px', color:'var(--text-secondary)',
-          }}>
-            <div style={{
-              width:'18px', height:'18px', flexShrink:0,
-              border:'2px solid var(--border-strong)', borderTopColor:'var(--accent)',
-              borderRadius:'50%', animation:'spin 0.7s linear infinite',
-            }}/>
-            Generating {LABELS[diff].toLowerCase()} questions on "{topicName}"…
-            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+          <div className="card animate-fadein" style={{ padding:'32px 24px', textAlign:'center' }}>
+            <div className="spinner spinner-lg" style={{ margin:'0 auto 16px' }} />
+            <div style={{ fontSize:15, fontWeight:600, color:'var(--text)', marginBottom:6 }}>Generating questions…</div>
+            <div style={{ fontSize:13, color:'var(--text-3)' }}>Creating {DLABEL[diff].toLowerCase()} questions on "{topicName}"</div>
           </div>
         )}
 
+        {/* Error */}
         {error && !loading && (
-          <div style={{
-            padding:'18px 20px', background:'var(--danger-bg)',
-            border:'1px solid var(--danger-border)', borderRadius:'10px',
-          }}>
-            <p style={{ fontSize:'13px', color:'var(--danger)', marginBottom:'12px' }}>⚠ {error}</p>
-            <button onClick={handleGenerate} style={{
-              padding:'7px 14px', background:'none', border:'1px solid var(--danger)',
-              borderRadius:'7px', color:'var(--danger)', fontSize:'13px', cursor:'pointer',
-            }}>↻ Retry</button>
+          <div className="card animate-fadein" style={{ padding:'20px 24px', borderColor:'var(--red-3)', background:'var(--red-2)' }}>
+            <div style={{ fontSize:14, color:'var(--red)', marginBottom:12 }}>⚠ {error}</div>
+            <button className="btn btn-sm" style={{ borderColor:'var(--red-3)', color:'var(--red)' }} onClick={handleGenerate}>↻ Retry</button>
           </div>
         )}
 
+        {/* Question */}
         {!loading && !error && current && (
-          <>
-            {/* Question */}
-            <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'10px', padding:'20px' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'12px' }}>
-                <span style={{ fontSize:'12px', color:'var(--text-muted)' }}>Q{idx+1} of {total}</span>
-                <span style={{
-                  fontSize:'11px', fontWeight:600, padding:'2px 8px', borderRadius:'10px',
-                  textTransform:'uppercase', letterSpacing:'0.04em',
-                  background:col.bg, color:col.text,
-                }}>{LABELS[diff]}</span>
-                {current.reviewed && (
-                  <span style={{
-                    fontSize:'11px', fontWeight:500, padding:'2px 8px', borderRadius:'10px',
-                    background:'var(--accent-bg)', color:'var(--accent-text)',
-                  }}>✓ Reviewed</span>
-                )}
-              </div>
-              <div style={{ fontSize:'16px', fontWeight:600, lineHeight:'1.5', color:'var(--text)' }}>{current.q}</div>
-            </div>
-
-            {/* Answer */}
-            <div style={{ background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:'10px', padding:'20px' }}>
-              <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'12px' }}>Answer</div>
-              <div>{formatAnswer(current.a)}</div>
-            </div>
-
-            {/* Notes */}
-            <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'10px', padding:'16px' }}>
-              <div style={{ fontSize:'11px', fontWeight:600, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'8px' }}>📝 My notes</div>
-              <textarea
-                value={current.note || ''}
-                onChange={e => saveNote(topicName, diff, idx, e.target.value)}
-                placeholder="Write your understanding, key points, or memory triggers here…"
-                style={{
-                  width:'100%', border:'1px solid var(--border)', borderRadius:'7px',
-                  padding:'9px 11px', fontSize:'13px', background:'var(--bg)',
-                  color:'var(--text)', resize:'vertical', lineHeight:'1.6',
-                  outline:'none', minHeight:'68px',
-                }}
-              />
-            </div>
-          </>
+          <QuestionCard
+            key={`${topicName}-${diff}-${idx}`}
+            q={current} idx={idx} total={total} diff={diff} topicName={topicName}
+            onToggleReviewed={() => toggleReviewed(topicName, diff, idx)}
+            onSaveNote={note => saveNote(topicName, diff, idx, note)}
+            onRegen={handleRegen}
+            regenLoading={regenLoad}
+          />
         )}
+
+        {/* Load more */}
+        {!loading && total > 0 && (
+          <button className="btn btn-full" onClick={handleLoadMore} disabled={loadMore}
+            style={{ borderStyle:'dashed', color:'var(--text-3)', marginTop:4 }}
+          >
+            {loadMore ? <><span className="spinner" style={{width:14,height:14}}/> Generating more…</> : `+ Load more ${DLABEL[diff].toLowerCase()} questions`}
+          </button>
+        )}
+
       </div>
 
-      {/* Action row */}
-      {!loading && current && (
-        <div style={{
-          padding:'10px 20px', background:'var(--surface)', borderTop:'1px solid var(--border)',
-          display:'flex', gap:'8px', flexShrink:0,
-        }}>
-          <button onClick={() => toggleReviewed(topicName, diff, idx)} style={{
-            padding:'6px 12px', borderRadius:'7px', fontSize:'12px', fontWeight:500,
-            border:`1px solid ${current.reviewed ? 'var(--success-border)' : 'var(--border)'}`,
-            background: current.reviewed ? 'var(--success-bg)' : 'none',
-            color: current.reviewed ? 'var(--success)' : 'var(--text-secondary)',
-            cursor:'pointer',
-          }}>{current.reviewed ? '✓ Reviewed' : '○ Mark reviewed'}</button>
-
-          <button onClick={handleRegen} disabled={regenLoading} style={{
-            padding:'6px 12px', borderRadius:'7px', fontSize:'12px', fontWeight:500,
-            border:'1px solid var(--border)', background:'none',
-            color:'var(--text-secondary)', cursor:'pointer', opacity:regenLoading?0.5:1,
-          }}>{regenLoading ? '…' : '↻ New question'}</button>
-        </div>
-      )}
-
-      {/* Nav */}
+      {/* ── Bottom nav ── */}
       {!loading && total > 0 && (
-        <div style={{
-          padding:'12px 20px', background:'var(--surface)', borderTop:'1px solid var(--border)',
-          display:'flex', alignItems:'center', gap:'10px', flexShrink:0,
-        }}>
-          <button disabled={idx===0} onClick={() => setIdx(topicName, diff, idx-1)} style={{
-            padding:'7px 14px', borderRadius:'7px', fontSize:'13px', fontWeight:500,
-            border:'1px solid var(--border)', background:'none', color:'var(--text)',
-            cursor:idx===0?'not-allowed':'pointer', opacity:idx===0?0.35:1,
-          }}>← Prev</button>
-
-          <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:'5px', flexWrap:'wrap' }}>
+        <div style={{ padding:'10px 16px', background:'var(--surface)', borderTop:'1px solid var(--border)', flexShrink:0 }}>
+          {/* Scrollable question chips */}
+          <div style={{ display:'flex', gap:5, overflowX:'auto', paddingBottom:10, scrollbarWidth:'none', msOverflowStyle:'none' }}>
             {questions.map((q, i) => (
-              <button key={i} onClick={() => setIdx(topicName, diff, i)} style={{
-                width:'8px', height:'8px', borderRadius:'50%', border:'none', padding:0, cursor:'pointer',
-                background: i===idx ? 'var(--text)' : q.reviewed ? 'var(--accent)' : 'var(--border-strong)',
-                transform: i===idx ? 'scale(1.35)' : 'scale(1)', transition:'all 0.15s',
-              }} title={`Q${i+1}${q.reviewed?' (reviewed)':''}`}/>
+              <button key={i} onClick={() => goTo(i)}
+                style={{
+                  minWidth:36, height:36, borderRadius:8, border:'1px solid',
+                  borderColor: i===idx ? 'var(--accent)' : q.reviewed ? 'var(--green-3)' : 'var(--border)',
+                  background:  i===idx ? 'var(--accent)' : q.reviewed ? 'var(--green-2)' : 'var(--surface2)',
+                  color:       i===idx ? '#fff' : q.reviewed ? 'var(--green)' : 'var(--text-3)',
+                  fontSize:11, fontWeight:700, cursor:'pointer', flexShrink:0, transition:'all 0.12s',
+                }}
+              >{i+1}</button>
             ))}
           </div>
 
-          <button disabled={idx===total-1} onClick={() => setIdx(topicName, diff, idx+1)} style={{
-            padding:'7px 14px', borderRadius:'7px', fontSize:'13px', fontWeight:500,
-            border:'1px solid var(--accent)', background:'var(--accent)', color:'#fff',
-            cursor:idx===total-1?'not-allowed':'pointer', opacity:idx===total-1?0.35:1,
-          }}>Next →</button>
+          {/* Prev / Next */}
+          <div style={{ display:'flex', gap:8 }}>
+            <button className="btn" style={{ flex:1 }} disabled={idx===0} onClick={() => goTo(idx-1)}>← Prev</button>
+            <button className="btn btn-primary" style={{ flex:1 }} disabled={idx===total-1} onClick={() => goTo(idx+1)}>Next →</button>
+          </div>
         </div>
       )}
     </div>

@@ -1,42 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 
-const url  = process.env.REACT_APP_SUPABASE_URL  || '';
-const key  = process.env.REACT_APP_SUPABASE_ANON_KEY || '';
-
+const url = process.env.REACT_APP_SUPABASE_URL  || '';
+const key = process.env.REACT_APP_SUPABASE_ANON_KEY || '';
 export const supabase = createClient(url, key);
 
-// ─── TABLE LAYOUT ───────────────────────────────────────────────────────────
-//
-//  topics
-//  ┌─────────────┬──────────┬────────────────────────────────────────────┐
-//  │ id (uuid)   │ name     │ created_at                                 │
-//  └─────────────┴──────────┴────────────────────────────────────────────┘
-//
-//  questions
-//  ┌──────────┬──────────┬────────────┬──────────┬──────────┬──────────┐
-//  │ id(uuid) │ topic_id │ difficulty │ q (text) │ a (text) │ position │
-//  │ reviewed │ note     │ created_at │          │          │          │
-//  └──────────┴──────────┴────────────┴──────────┴──────────┴──────────┘
-//
-// ────────────────────────────────────────────────────────────────────────────
+// ── Topics + Questions ────────────────────────────────────────────────────────
 
-// Load all topics and their questions, return in the db shape the app expects:
-// { [topicName]: { easy:{questions:[],idx:0}, medium:{...}, hard:{...} } }
 export async function loadAll() {
   const { data: topics, error: te } = await supabase
-    .from('topics')
-    .select('id, name')
-    .order('created_at', { ascending: true });
-
+    .from('topics').select('id, name').order('created_at', { ascending: true });
   if (te) throw te;
   if (!topics?.length) return {};
 
   const { data: questions, error: qe } = await supabase
-    .from('questions')
-    .select('*')
+    .from('questions').select('*')
     .in('topic_id', topics.map(t => t.id))
     .order('position', { ascending: true });
-
   if (qe) throw qe;
 
   const db = {};
@@ -47,16 +26,13 @@ export async function loadAll() {
       medium: { questions: [], idx: 0 },
       hard:   { questions: [], idx: 0 },
     };
-    const qs = (questions || []).filter(q => q.topic_id === topic.id);
-    for (const q of qs) {
+    for (const q of (questions || []).filter(q => q.topic_id === topic.id)) {
       const diff = q.difficulty;
       if (db[topic.name][diff]) {
         db[topic.name][diff].questions.push({
-          _id: q.id,
-          q: q.q,
-          a: q.a,
-          reviewed: q.reviewed,
-          note: q.note || '',
+          _id: q.id, q: q.q, a: q.a,
+          tips: q.tips || [],
+          reviewed: q.reviewed, note: q.note || '',
         });
       }
     }
@@ -64,107 +40,90 @@ export async function loadAll() {
   return db;
 }
 
-// Add a topic row, return its uuid
 export async function dbAddTopic(name) {
   const { data, error } = await supabase
-    .from('topics')
-    .insert({ name })
-    .select('id')
-    .single();
+    .from('topics').insert({ name }).select('id').single();
   if (error) throw error;
   return data.id;
 }
 
-// Delete a topic and all its questions (cascade handled by FK in Supabase)
 export async function dbDeleteTopic(topicId) {
   const { error } = await supabase.from('topics').delete().eq('id', topicId);
   if (error) throw error;
 }
 
-// Insert a batch of questions for a topic+difficulty
 export async function dbSaveQuestions(topicId, difficulty, questions) {
-  // Delete old ones for this topic+difficulty first
   await supabase.from('questions')
-    .delete()
-    .eq('topic_id', topicId)
-    .eq('difficulty', difficulty);
-
+    .delete().eq('topic_id', topicId).eq('difficulty', difficulty);
   if (!questions.length) return [];
-
   const rows = questions.map((q, i) => ({
-    topic_id: topicId,
-    difficulty,
-    q: q.q,
-    a: q.a,
-    reviewed: q.reviewed || false,
-    note: q.note || '',
-    position: i,
+    topic_id: topicId, difficulty,
+    q: q.q, a: q.a, tips: q.tips || [],
+    reviewed: q.reviewed || false, note: q.note || '', position: i,
   }));
-
-  const { data, error } = await supabase
-    .from('questions')
-    .insert(rows)
-    .select('id');
+  const { data, error } = await supabase.from('questions').insert(rows).select('id');
   if (error) throw error;
   return data.map(r => r.id);
 }
 
-// Update a single question's reviewed + note fields
 export async function dbUpdateQuestion(questionId, patch) {
-  const { error } = await supabase
-    .from('questions')
-    .update(patch)
-    .eq('id', questionId);
+  const { error } = await supabase.from('questions').update(patch).eq('id', questionId);
   if (error) throw error;
 }
 
-// Replace a single question (regenerate)
-export async function dbReplaceQuestion(questionId, q, a) {
-  const { error } = await supabase
-    .from('questions')
-    .update({ q, a, reviewed: false, note: '' })
-    .eq('id', questionId);
+export async function dbReplaceQuestion(questionId, q, a, tips) {
+  const { error } = await supabase.from('questions')
+    .update({ q, a, tips: tips || [], reviewed: false, note: '' }).eq('id', questionId);
   if (error) throw error;
 }
 
-// ── COMPARISONS ──────────────────────────────────────────────────────────────
-// Table: comparisons (id, topic_a, topic_b, data jsonb, created_at)
-// Unique constraint on (topic_a, topic_b) — one comparison per pair
+// ── Comparisons ───────────────────────────────────────────────────────────────
 
 export async function loadComparisons() {
   const { data, error } = await supabase
-    .from('comparisons')
-    .select('topic_a, topic_b, data')
-    .order('created_at', { ascending: true });
+    .from('comparisons').select('topic_a, topic_b, data').order('created_at', { ascending: true });
   if (error) throw error;
-  // Return as map keyed by "topicA|||topicB"
   const map = {};
-  for (const row of (data || [])) {
-    map[compKey(row.topic_a, row.topic_b)] = row.data;
-  }
+  for (const row of (data || [])) map[compKey(row.topic_a, row.topic_b)] = row.data;
   return map;
 }
 
 export async function dbSaveComparison(topicA, topicB, data) {
-  const { error } = await supabase
-    .from('comparisons')
-    .upsert(
-      { topic_a: topicA, topic_b: topicB, data },
-      { onConflict: 'topic_a,topic_b' }
-    );
+  const { error } = await supabase.from('comparisons')
+    .upsert({ topic_a: topicA, topic_b: topicB, data }, { onConflict: 'topic_a,topic_b' });
   if (error) throw error;
 }
 
 export async function dbDeleteComparison(topicA, topicB) {
-  const { error } = await supabase
-    .from('comparisons')
-    .delete()
-    .eq('topic_a', topicA)
-    .eq('topic_b', topicB);
+  const { error } = await supabase.from('comparisons')
+    .delete().eq('topic_a', topicA).eq('topic_b', topicB);
   if (error) throw error;
 }
 
-export function compKey(a, b) {
-  // Always store alphabetically so "A vs B" and "B vs A" are the same entry
-  return [a, b].sort().join('|||');
+export function compKey(a, b) { return [a, b].sort().join('|||'); }
+
+// ── JD Sessions ───────────────────────────────────────────────────────────────
+
+export async function loadJDSessions() {
+  const { data, error } = await supabase
+    .from('jd_sessions').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function dbSaveJDSession(session) {
+  const { data, error } = await supabase
+    .from('jd_sessions').insert(session).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+
+export async function dbUpdateJDSession(id, patch) {
+  const { error } = await supabase.from('jd_sessions').update(patch).eq('id', id);
+  if (error) throw error;
+}
+
+export async function dbDeleteJDSession(id) {
+  const { error } = await supabase.from('jd_sessions').delete().eq('id', id);
+  if (error) throw error;
 }
